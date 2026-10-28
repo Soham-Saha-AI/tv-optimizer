@@ -1,0 +1,32 @@
+[package]
+name = "tv-optimizer"
+version = "0.1.0"
+description = "Portable, local Android TV optimization and recovery"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "tv_optimizer_lib"
+crate-type = ["rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+swiftos-v3-candidate = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

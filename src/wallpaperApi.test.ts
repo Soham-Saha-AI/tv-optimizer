@@ -1,0 +1,9 @@
+import {describe,it,expect} from 'vitest';
+import {wallpaperDimensions,wallpaperSize} from './wallpaperApi';
+function png(width:number,height:number,animated=false){const bytes=new Uint8Array(64);bytes.set([137,80,78,71,13,10,26,10]);const view=new DataView(bytes.buffer);view.setUint32(8,13);bytes.set([73,72,68,82],12);view.setUint32(16,width);view.setUint32(20,height);view.setUint32(33,8);bytes.set(animated?[97,99,84,76]:[73,68,65,84],37);return bytes}
+describe('bounded local wallpaper preparation',()=>{
+ it('preserves proportions and never enlarges a small photo',()=>{expect(wallpaperSize(3840,2160)).toEqual({width:1920,height:1080});expect(wallpaperSize(4000,8000)).toEqual({width:540,height:1080});expect(wallpaperSize(800,600)).toEqual({width:800,height:600})});
+ it('checks PNG dimensions before decoding and rejects animated or enormous images',()=>{expect(wallpaperDimensions(png(1920,1080))).toEqual({width:1920,height:1080});expect(()=>wallpaperDimensions(png(16000,16000))).toThrow('64 megapixels');expect(()=>wallpaperDimensions(png(1920,1080,true))).toThrow('Animated PNG')});
+ it('reads JPEG and lossless WebP headers without decoding their pixels',()=>{const jpeg=new Uint8Array([255,216,255,192,0,17,8,4,56,7,128,3,1,17,0,2,17,0,3,17,0]);expect(wallpaperDimensions(jpeg)).toEqual({width:1920,height:1080});const webp=new Uint8Array(30);webp.set([82,73,70,70],0);webp.set([87,69,66,80,86,80,56,76],8);webp[20]=47;new DataView(webp.buffer).setUint32(21,1919|(1079<<14),true);expect(wallpaperDimensions(webp)).toEqual({width:1920,height:1080})});
+ it('rejects unrelated formats and truncated dimensions',()=>{expect(()=>wallpaperDimensions(new Uint8Array([71,73,70,56]))).toThrow('valid still');expect(()=>wallpaperDimensions(new Uint8Array([255,216,255,192,0,17]))).toThrow('valid still')});
+});

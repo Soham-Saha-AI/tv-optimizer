@@ -1,0 +1,21 @@
+{
+  "name": "SwiftOS",
+  "internalName": "SS OS",
+  "applicationId": "com.gathin.tvhome",
+  "versionName": "2.7-swiftos",
+  "versionCode": 22,
+  "minimumAndroidSdk": 26,
+  "targetAndroidSdk": 34,
+  "sha256": "ff6f0c1f93c086e803532f40b7b2165e1c820cd62e588da233fcdf96a4123c06",
+  "signerSha256": "e0e52087919f09bb6bfe5d5fc7e986b643a2bf1f3d49b40e8827f87e3ac5f986",
+  "baseProject": "https://github.com/Gathin23/cleanyourtv",
+  "updatePolicy": "Compatible signed updates preserve existing private launcher preferences; Android can reject downgrades. Private settings have no complete export interface.",
+  "weather": "Kolkata only, explicitly optional. Defaults off on other TV models; existing weather behavior is retained on compatible profiles.",
+  "compatibility": "Android TV / Google TV 8+. Physical remote, startup and playback checks required for each firmware. Android APKs do not run on LG webOS or Samsung Tizen.",
+  "legacyRecovery": {
+    "file": "legacy-liquid-glass-21.apk",
+    "versionCode": 21,
+    "sha256": "7f4e52a83db2bd60c619b86193f36b99a886e8d8b2b43f8e559b72870479b153",
+    "automaticDowngrade": false
+  }
+}

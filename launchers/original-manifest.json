@@ -1,0 +1,12 @@
+{
+  "source": "https://github.com/Gathin23/cleanyourtv/releases/tag/v2.7.0",
+  "sourceArchiveSha256": "14c7f8f3bb3d5d5e162730f9445209122f4506c60ff8c34c3cd0da79c03a027e",
+  "applicationId": "com.gathin.tvhome.original",
+  "versionCode": 8,
+  "versionName": "2.7",
+  "minimumAndroidSdk": 26,
+  "targetAndroidSdk": 34,
+  "sha256": "0abac5827139951199f73454403c9b7de0443b43fcbf54921928f381080448ba",
+  "modification": "Only launcherApplicationId Gradle property supplied; upstream sources unchanged.",
+  "signerSha256": "e0e52087919f09bb6bfe5d5fc7e986b643a2bf1f3d49b40e8827f87e3ac5f986"
+}

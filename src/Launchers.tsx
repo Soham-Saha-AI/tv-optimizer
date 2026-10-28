@@ -1,0 +1,32 @@
+import {useState} from 'react';
+import {OriginalLauncher} from './OriginalLauncher';
+import {CommunityUpdates} from './CommunityUpdates';
+import {isEnabled} from './domain';
+import {recommendationItem} from './Overview';
+import {Icon,Status,friendlyLabel} from './ui';
+import type {Recommendation} from './models';
+import type {Optimizer} from './useOptimizer';
+
+export function Launchers({app}:{app:Optimizer}){
+ const snapshot=app.scan!.snapshot,recs=app.scan!.recommendations;
+ const [replaceGoogle,setReplaceGoogle]=useState(false);
+ const custom=snapshot.packages.find(p=>p.id==='com.gathin.tvhome'&&p.installed);
+ const preferred=snapshot.home_component?.startsWith('com.gathin.tvhome/');
+ const confirmed=app.history.some(r=>r.kind==='set_home'&&r.status==='confirmed'&&r.restore_status!=='restored'&&r.device_key===snapshot.identity.device_key);
+ const google=snapshot.packages.find(p=>p.id==='com.google.android.tvlauncher');
+ const home=recs.find(r=>r.action.kind==='set_home'&&r.action.target.startsWith('com.gathin.tvhome/'));
+ const choose=(rec:Recommendation)=>{const item=recommendationItem(rec);if(rec.action.kind==='set_home')item.action={...item.action,value:replaceGoogle?'replace_google':''};app.reviewSelection(item)};
+ const button=(rec:Recommendation|undefined,label:string,allowCurrent=false)=>rec?<button disabled={!!app.busy||!rec.supported||rec.already_applied&&!allowCurrent} onClick={()=>choose(rec)}>{rec.already_applied&&!allowCurrent?'Already installed':label}</button>:null;
+ const bundledCode=app.runtime?.swiftos_version_code??24;
+ const versions=[{variant:'custom',title:bundledCode>=23?'SwiftOS v3':'SwiftOS 2.7',subtitle:bundledCode>=24?'Latest optimized v3 with local wallpapers':'Bundled reviewed SwiftOS release',code:bundledCode,description:bundledCode>=24?'The approved Liquid Glass design and motion, with photos chosen from the TV’s Auto Wallpaper folder. Tested support is limited to the Mi TV 4A Pro Android firmware profile.':'The reviewed Liquid Glass launcher. Local weather/time photo controls need SwiftOS v3 build 24 or later. Tested support is limited to the Mi TV 4A Pro Android firmware profile.'},{variant:'build22',title:'SwiftOS 2.7',subtitle:'Original build 22 · kept unchanged',code:22,description:'Keep the earlier Liquid Glass release available as a separate choice. SwiftOS versions use the same app package, so only one version is installed at a time.'}];
+ return <><div className="page-heading"><div><h1>Choose your Home screen.</h1><p>Choose a version, review installation, then decide whether to make it your default.</p></div></div>
+ <div className="info-banner"><Icon name="restore"/><p>Home changes use a 150-second recovery timer. Press Home and confirm the chosen screen works. Without confirmation the previous configuration returns. The timer does not survive TV power loss.</p></div>
+ {custom?<section className="setting-row"><div><strong>Installed SwiftOS {custom.version_name} · build {custom.version_code}</strong><p>{preferred?'This is your current Home screen.':'Installed and available to choose as Home.'}</p></div>{button(home,preferred?'Confirm this Home works':'Make installed SwiftOS my Home',true)}</section>:null}
+ <section className="launcher-options">{versions.filter((version,index)=>index===0||version.code!==bundledCode).map(version=>{const install=recs.find(r=>r.action.kind==='install_launcher'&&r.action.target==='com.gathin.tvhome'&&r.action.value===version.variant);const newer=!!custom&&custom.version_code>version.code;return <article className="launcher-row" key={version.variant}><div className="launcher-art"><Icon name="tv" size={44}/><span>{version.title}</span></div><div className="launcher-copy"><div className="inline-title"><h2>{version.title}</h2>{custom?.version_code===version.code?<Status status="already_optimized"/>:null}</div><span className="muted">{version.subtitle}</span><p>{version.description}</p>{button(install,'Review & install')}{newer?<p className="small muted">A newer SwiftOS is installed. The older APK stays in the package; automatic downgrades are blocked to preserve your data.</p>:!install?.supported?<p className="small muted">Installation is unavailable for this TV or the bundled version needs verification.</p>:null}</div></article>})}</section>
+ <OriginalLauncher app={app}/><CommunityUpdates app={app} launcher/>
+ {snapshot.profile&&google&&isEnabled(google)?<label className="check-explanation"><input type="checkbox" checked={replaceGoogle} disabled={!!app.busy} onChange={e=>setReplaceGoogle(e.target.checked)}/><span><strong>Replace Google Home if it prevents switching</strong><small>Applies only to this guarded Home takeover. Its exact enabled state is saved for recovery.</small></span></label>:null}
+ <section className="section-block"><h2>Manage each original launcher</h2><p>Disabling keeps the app and its data. Choosing a default Home is a separate action.</p>{!confirmed?<p className="callout">Confirm a working replacement Home above before disabling an original launcher.</p>:null}
+ {snapshot.packages.filter(p=>['com.google.android.tvlauncher','com.mitv.tvhome.atv','com.mitv.tvhome'].includes(p.id)).map(pkg=>{const kind=isEnabled(pkg)?'disable':'enable';const rec=recs.find(r=>r.action.kind===kind&&r.action.target===pkg.id);const originalHome=recs.find(r=>r.action.kind==='set_home'&&r.action.target.startsWith(pkg.id+'/'));return <div className="setting-row" key={pkg.id}><div><strong>{friendlyLabel(pkg.id,pkg.label)}</strong><p>{pkg.id.startsWith('com.mitv.')?'PatchWall supplies Xiaomi content and may handle the Mi button.':'Google’s original Home screen and its recommendations.'}</p><small>{isEnabled(pkg)?'Enabled':'Disabled or unavailable'}</small></div><div className="inline-actions"><button disabled={!!app.busy||!rec?.supported||kind==='disable'&&!confirmed} onClick={()=>rec&&choose(rec)}>{kind==='disable'?'Review disable':'Review bring back'}</button>{button(originalHome,'Make this my Home',true)}</div></div>})}
+ {recs.filter(r=>r.action.kind==='patchwall_startup').map(rec=><div className="setting-row" key={rec.id}><div><strong>Start with my chosen Home</strong><p>{rec.description}</p></div>{button(rec,'Review startup choice')}</div>)}
+ </section><p className="footnote">The untouched tested v3 build 23 and build 22 APKs are retained in the package. Switching back to an older Android app version can require steps that lose private preferences; the tool does not force a downgrade.</p></>
+}
