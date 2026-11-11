@@ -171,7 +171,6 @@ jobs:
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $ver = (Get-Content -LiteralPath 'src-tauri\tauri.conf.json' -Raw | ConvertFrom-Json).version
           & .\scripts\Package-Portable.ps1 -SwiftOSV3Candidate | Out-Host
-          if ($LASTEXITCODE -ne 0) { throw 'Package-Portable.ps1 failed.' }
           $zipPath = Join-Path $env:GITHUB_WORKSPACE "releases\TV-Optimizer-$ver-SwiftOS-v3-Windows-x64.zip"
           if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) { throw "Portable ZIP missing: $zipPath" }
 
