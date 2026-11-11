@@ -11,7 +11,7 @@ $buildReceipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
 if ($buildReceipt.status -ne 'success' -or $buildReceipt.variant -ne $expectedVariant) { throw "The last successful GUI build is not the requested '$expectedVariant' variant. Run Build-App.ps1 -Release with the matching mode." }
 $executableHash = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($executableHash -ne $buildReceipt.sha256) { throw 'The selected executable does not match the SHA-256 in the successful GUI build receipt.' }
-$expectedVersionCode = if ($SwiftOSV3Candidate) { 24 } else { 22 }
+$expectedVersionCode = if ($SwiftOSV3Candidate) { 25 } else { 22 }
 if ($buildReceipt.launcher_version_code -ne $expectedVersionCode) { throw "The successful GUI build receipt does not target SwiftOS version code $expectedVersionCode." }
 $version = (Get-Content -LiteralPath (Join-Path $repo 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json).version
 $packageRootName = 'TVOptimizer'
@@ -21,11 +21,11 @@ $candidateEvidence = $null
 if ($SwiftOSV3Candidate) {
   $packageRootName = 'TVOptimizer-SwiftOS-v3'
   $zipLabel = "TV-Optimizer-$version-SwiftOS-v3-Windows-x64"
-  $swiftosApk = Join-Path $repo 'launchers\candidates\SwiftOS-3.0.1-24.apk'
-  $evidencePath = Join-Path $repo 'design\swiftos-v3-wallpaper-build24\candidate.json'
+  $swiftosApk = Join-Path $repo 'launchers\candidates\SwiftOS-3.0.2-25.apk'
+  $evidencePath = Join-Path $repo 'design\swiftos-v3-build25\candidate.json'
   if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) { throw 'SwiftOS v3 build evidence is missing.' }
   $candidateEvidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
-  if ($candidateEvidence.Package -ne 'com.gathin.tvhome' -or $candidateEvidence.VersionCode -ne 24 -or $candidateEvidence.VersionName -ne '3.0.1-swiftos') { throw 'SwiftOS v3 build evidence has an unexpected package identity or version.' }
+  if ($candidateEvidence.Package -ne 'com.gathin.tvhome' -or $candidateEvidence.VersionCode -ne 25 -or $candidateEvidence.VersionName -ne '3.0.2-swiftos') { throw 'SwiftOS v3 build evidence has an unexpected package identity or version.' }
   if (-not (Test-Path -LiteralPath $swiftosApk -PathType Leaf)) { throw 'SwiftOS v3 candidate APK is missing.' }
   $variantSource = Get-Content -LiteralPath (Join-Path $repo 'src-tauri\src\launcher_variant.rs') -Raw
   $match = [regex]::Match($variantSource, '(?s)#\[cfg\(feature = "swiftos-v3-candidate"\)\]\s*pub const SWIFTOS_HASH: &str = "([^"]+)";')
@@ -106,7 +106,7 @@ Bundled components
 No compiler, source checkout, signing private key, personal backup, ADB trust key,
 or app data is included in this distribution.
 '@
-$notice = $notice.Replace('__SWIFTOS_BUILD__', $(if ($SwiftOSV3Candidate) { '24 local-wallpaper update (Mi TV 4A Pro only); tested build23 and build22 are retained separately' } else { '22' }))
+$notice = $notice.Replace('__SWIFTOS_BUILD__', $(if ($SwiftOSV3Candidate) { '25 cold-boot persistence & local-wallpaper update (Mi TV 4A Pro only); tested build23 and build22 are retained separately' } else { '22' }))
 $notice | Set-Content -LiteralPath (Join-Path $package 'licenses\THIRD-PARTY-NOTICES.txt') -Encoding utf8
 & (Join-Path $PSScriptRoot 'Collect-Licenses.ps1') -Destination (Join-Path $package 'licenses\third-party')
 'This folder stores only this portable copy''s history, backups and exports. Keep it with the application.' | Set-Content -LiteralPath (Join-Path $package 'data\README.txt') -Encoding utf8

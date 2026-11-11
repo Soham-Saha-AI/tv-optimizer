@@ -1,0 +1,261 @@
+name: Build and Release Portable Windows App
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-portable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies, test, and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm run build
+
+      - name: Download and verify bundled launchers and platform tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $repo = $env:GITHUB_WORKSPACE
+          $parent = Split-Path -Parent $repo
+          $platformTools = Join-Path $parent 'platform-tools'
+          $tempDir = Join-Path $repo '.tools\ci-downloads'
+          New-Item -ItemType Directory -Force -Path $tempDir, $platformTools, `
+            (Join-Path $repo 'launchers\candidates'), `
+            (Join-Path $repo '.tools\upstream\cleanyourtv-2.7.0') | Out-Null
+
+          function Verify-Sha256($path, $expected) {
+            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $expected.ToLowerInvariant()) {
+              throw "SHA-256 mismatch for ${path}: expected $expected, got $actual"
+            }
+          }
+
+          $swiftosZip = Join-Path $tempDir 'SwiftOS-v3-TV-build25.zip'
+          Invoke-WebRequest -Uri 'https://github.com/Soham-Saha-AI/swiftos-v3/releases/download/v3.0.2-build25/SwiftOS-v3-TV-build25.zip' -OutFile $swiftosZip
+          Verify-Sha256 $swiftosZip 'bce75df821b663e2429d613bbb13328d7bd30243de974c29b15fa80227e1b110'
+
+          $z1 = [IO.Compression.ZipFile]::OpenRead($swiftosZip)
+          try {
+            $map1 = @{
+              'SwiftOS-3.0.2-build25.apk'      = @{ dest = 'launchers\candidates\SwiftOS-3.0.2-25.apk'; sha = 'c3209b1194650f05056ea40ac4b1ed66a300249e3cae81f34de1036778b50859' }
+              'SwiftOS-3.0-build23-tested.apk' = @{ dest = 'launchers\swiftos-v3-tested-23.apk';     sha = 'aee129904809bef86f258d8873bbba5ee7297986b61c2e0572cb9786ec7c4aec' }
+              'SwiftOS-2.7-build22.apk'        = @{ dest = 'launchers\liquid-glass.apk';           sha = 'ff6f0c1f93c086e803532f40b7b2165e1c820cd62e588da233fcdf96a4123c06' }
+              'CleanYourTV-LICENSE.txt'        = @{ dest = '.tools\upstream\cleanyourtv-2.7.0\LICENSE'; sha = '' }
+            }
+            foreach ($k in $map1.Keys) {
+              $entry = $z1.GetEntry($k)
+              if ($null -eq $entry) { throw "Missing $k in SwiftOS-v3-TV-build25.zip" }
+              $dest = Join-Path $repo $map1[$k].dest
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $dest, $true)
+              if ($map1[$k].sha) { Verify-Sha256 $dest $map1[$k].sha }
+            }
+          } finally { $z1.Dispose() }
+
+          $prevZip = Join-Path $tempDir 'TV-Optimizer-0.1.0-SwiftOS-v3-Windows-x64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/Soham-Saha-AI/tv-optimizer/releases/download/v0.1.0/TV-Optimizer-0.1.0-SwiftOS-v3-Windows-x64.zip' -OutFile $prevZip
+          Verify-Sha256 $prevZip 'b6f1e6fee645c7fdead5e06a24bf52c57ca0737ef93d5deb99ef6407045168b5'
+
+          $z2 = [IO.Compression.ZipFile]::OpenRead($prevZip)
+          try {
+            $legacyEntry = $z2.GetEntry('TVOptimizer-SwiftOS-v3/launchers/legacy-liquid-glass-21.apk')
+            if ($null -eq $legacyEntry) { throw 'Missing legacy-liquid-glass-21.apk in v0.1.0 zip' }
+            $legacyDest = Join-Path $repo 'launchers\legacy-liquid-glass-21.apk'
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($legacyEntry, $legacyDest, $true)
+            Verify-Sha256 $legacyDest '7f4e52a83db2bd60c619b86193f36b99a886e8d8b2b43f8e559b72870479b153'
+
+            foreach ($tool in @('adb.exe','AdbWinApi.dll','AdbWinUsbApi.dll','libwinpthread-1.dll','source.properties')) {
+              $entry = $z2.GetEntry("TVOptimizer-SwiftOS-v3/tools/$tool")
+              if ($null -eq $entry) { throw "Missing tools/$tool in v0.1.0 zip" }
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $platformTools $tool), $true)
+            }
+            $noticeEntry = $z2.GetEntry('TVOptimizer-SwiftOS-v3/licenses/Android-platform-tools-NOTICE.txt')
+            if ($null -eq $noticeEntry) { throw 'Missing Android-platform-tools-NOTICE.txt' }
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($noticeEntry, (Join-Path $platformTools 'NOTICE.txt'), $true)
+          } finally { $z2.Dispose() }
+
+          Remove-Item -LiteralPath $tempDir -Recurse -Force
+
+      - name: Prepare fixed WebView2 runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          & .\scripts\Prepare-Toolchain.ps1 -WebView2Only
+
+      - name: Run native Rust tests and build release executable
+        shell: pwsh
+        env:
+          CARGO_HOME: ${{ github.workspace }}\.tools\cargo
+          RUSTFLAGS: -C target-feature=+crt-static
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\Cargo.toml'
+          cargo test --manifest-path $manifest --locked --lib --features swiftos-v3-candidate
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo unit tests failed.' }
+
+          cargo build --manifest-path $manifest --locked --release --features custom-protocol,swiftos-v3-candidate
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo release build failed.' }
+
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target\release\tv-optimizer.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'Release executable missing.' }
+
+          if ($env:WINDOWS_CERT_PFX_BASE64) {
+            $pfxPath = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+            try {
+              [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+              $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+              if (-not $signtool) { throw 'signtool.exe not found on runner.' }
+              & $signtool.FullName sign /fd SHA256 /f $pfxPath /p $env:WINDOWS_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $exe
+              if ($LASTEXITCODE -ne 0) { throw 'Authenticode signing failed.' }
+            } finally {
+              if (Test-Path -LiteralPath $pfxPath) { Remove-Item -LiteralPath $pfxPath -Force }
+            }
+          }
+
+          $candHash = (Get-FileHash -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'launchers\candidates\SwiftOS-3.0.2-25.apk') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $receipt = [ordered]@{
+            status                = 'success'
+            variant               = 'swiftos-v3-candidate'
+            executable            = 'src-tauri/target/release/tv-optimizer.exe'
+            sha256                = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+            launcher_sha256       = $candHash
+            launcher_version_code = 25
+            builtUtc              = [DateTime]::UtcNow.ToString('o')
+          }
+          $receipt | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.tools\last-build-receipt.json') -Encoding utf8
+
+      - name: Package portable ZIP and verify integrity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $ver = (Get-Content -LiteralPath 'src-tauri\tauri.conf.json' -Raw | ConvertFrom-Json).version
+          & .\scripts\Package-Portable.ps1 -SwiftOSV3Candidate | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Package-Portable.ps1 failed.' }
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE "releases\TV-Optimizer-$ver-SwiftOS-v3-Windows-x64.zip"
+          if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) { throw "Portable ZIP missing: $zipPath" }
+
+          $z = [IO.Compression.ZipFile]::OpenRead($zipPath)
+          try {
+            $manifestEntry = $z.GetEntry('TVOptimizer-SwiftOS-v3/integrity-manifest.json')
+            if ($null -eq $manifestEntry) { throw 'integrity-manifest.json missing from ZIP.' }
+            foreach ($entry in $z.Entries) {
+              if ($entry.FullName -match '(?i)\.(db|sqlite|sqlite3|log|keystore|jks|pfx|p12|pem)$') {
+                throw "Forbidden archive entry: $($entry.FullName)"
+              }
+              $s = $entry.Open()
+              try { $s.CopyTo([IO.Stream]::Null) } finally { $s.Dispose() }
+            }
+          } finally { $z.Dispose() }
+
+          $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipName = Split-Path -Leaf $zipPath
+          "$zipHash  $zipName`n" | Set-Content -LiteralPath "$zipPath.sha256" -Encoding ascii -NoNewline
+          Write-Host "Packaged $zipName ($((Get-Item $zipPath).Length) bytes, sha256=$zipHash)"
+
+      - name: Upload portable workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TV-Optimizer-Windows-Portable
+          path: |
+            releases/TV-Optimizer-*-SwiftOS-v3-Windows-x64.zip
+            releases/TV-Optimizer-*-SwiftOS-v3-Windows-x64.zip.sha256
+
+      - name: Publish GitHub Release on tag push
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:GITHUB_REF_NAME
+          $ver = (Get-Content -LiteralPath 'src-tauri\tauri.conf.json' -Raw | ConvertFrom-Json).version
+          $zip = "releases\TV-Optimizer-$ver-SwiftOS-v3-Windows-x64.zip"
+          $shaFile = "$zip.sha256"
+          $zipName = [IO.Path]::GetFileName($zip)
+          $signedNote = if ($env:WINDOWS_CERT_PFX_BASE64) {
+            'Signed with an Authenticode code-signing certificate during release CI.'
+          } else {
+            'Built cleanly in GitHub Actions (`windows-latest`); the executable is currently **unsigned**, so Windows Smart App Control may block launching `TV Optimizer.exe` directly on Windows 11 systems where Smart App Control is enabled.'
+          }
+
+          $lines = @(
+            "**[Direct download](https://github.com/Soham-Saha-AI/tv-optimizer/releases/latest/download/$zipName)**",
+            "",
+            "TV Optimizer **$ver** is a portable Windows x64 utility for inspecting and safely optimizing Android TVs over ADB. **No AI app, AI account, coding, or Android SDK is needed.**",
+            "",
+            "## What's new in $ver",
+            "",
+            "- **Bundles SwiftOS v3 build 25 (``3.0.2-swiftos``, ``versionCode 25``):** Fixes cold-boot persistence so on-TV themes (``ThemePicker``) and icon background opacity / layout settings survive full TV power cycles even when external storage mounts after Home starts. Also includes App Library ``RecyclerView`` cache tuning (``AppLibraryDialog``).",
+            "- **Retained launcher APKs:** Includes unchanged tested ``SwiftOS-3.0-build23-tested.apk`` (``swiftos-v3-tested-23.apk``) and ``SwiftOS-2.7-build22.apk`` (``liquid-glass.apk``) alongside recovery build 21.",
+            "- **Build note:** $signedNote",
+            "",
+            "## Testing status - limited coverage",
+            "",
+            "- **TV Optimizer ${ver}:** Passed 63 native Rust unit tests, 23 frontend Vitest tests, TypeScript/Vite production build, and ``Verify-Package.ps1`` integrity manifest verification on GitHub Actions ``windows-latest``.",
+            "- **SwiftOS v3 build 25:** Passed 260 Android JVM unit tests, release lint, R8, signer continuity, and 156 pixel-verified artwork checks. Cold-reboot persistence and App Library fixes were previously smoke-tested on one Android TV as build 24 on 2 November 2026; the renumbered build 25 APK and this CI-built Windows bundle remain unexecuted on physical hardware / clean Windows VM.",
+            "",
+            "## Help test and improve it",
+            "",
+            "Report device model, Android version, firmware/build, app version, reproduction steps, and expected vs actual behavior in [issues](https://github.com/Soham-Saha-AI/tv-optimizer/issues). Do not share serial numbers, private IPs, recovery exports, or account data.",
+            "",
+            "## TV Optimizer screenshots",
+            "",
+            "Screenshots use built-in sample data, with no personal TV connection.",
+            "",
+            "![Setup](https://raw.githubusercontent.com/Soham-Saha-AI/tv-optimizer/main/docs/images/setup.png)",
+            "",
+            "![Overview - sample data](https://raw.githubusercontent.com/Soham-Saha-AI/tv-optimizer/main/docs/images/overview-preview.png)"
+          )
+          $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          ($lines -join "`n") | Set-Content -LiteralPath $notesFile -Encoding utf8
+
+          cmd /c "gh release view $tag >nul 2>nul"
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag $zip $shaFile --title "TV Optimizer $ver - Windows x64 (with SwiftOS v3 build 25)" --notes-file $notesFile --latest
+          } else {
+            gh release edit $tag --title "TV Optimizer $ver - Windows x64 (with SwiftOS v3 build 25)" --notes-file $notesFile --latest
+            gh release upload $tag $zip $shaFile --clobber
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed.' }

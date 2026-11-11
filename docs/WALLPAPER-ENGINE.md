@@ -1,14 +1,12 @@
-# Local Wallpaper Engine — SwiftOS v3 build 24
+# Local Wallpaper Engine — SwiftOS v3 build 25
 
-This update is tested on one Android TV. PC wallpaper management targets Android user 0 explicitly; other TV users are not yet supported. It is not a webOS launcher. SwiftOS 2.7 build 22 and the previously tested v3 build 23 remain separate, untouched APKs. All three use the same app identity; only one version can be installed. A compatible update preserves launcher preferences. Android blocks ordinary downgrades; do not uninstall SwiftOS to force one unless you accept losing its private settings.
+This update is tested on one Android TV. PC wallpaper management targets Android user 0 explicitly; other TV users are not yet supported. It is not a webOS launcher. SwiftOS 2.7 build 22 and the previously tested v3 build 23 remain separate, untouched APKs. All versions share the `com.gathin.tvhome` app identity; only one version can be installed at a time. Compatible updates preserve launcher preferences. Android blocks ordinary downgrades; do not uninstall SwiftOS to force one unless you accept losing its private settings.
 
 ## Add your photos
 
-The updated Windows interface has a **Wallpaper Engine** tab. Choose weather and time, select photos, then **Prepare & review transfer**. Confirm **Transfer photos**. This prepares photos on the PC and copies them to the TV; it does not turn automatic wallpaper on.
+[TV Optimizer](https://github.com/Soham-Saha-AI/tv-optimizer) includes a **Wallpaper Engine** tab. Choose weather and time, select photos, then **Prepare & review transfer**. Confirm **Transfer photos**. This prepares photos on the PC and copies them to the TV; it does not turn automatic wallpaper on.
 
 Use **Review turning on**, check the explanation, then **Apply**. Press Home on the TV. If SwiftOS needs photo access, allow it in its TV settings first. You can also use SwiftOS's existing **Auto wallpaper** option directly on the TV.
-
-**Windows delivery status, 28 October:** the native release builds successfully and passes 63 native tests. The updated portable package includes this interface and native integration. No Windows security setting was changed. The earlier compilation block is resolved for this build. Further TV tests were not requested for this package update; previous bounded wallpaper checks remain recorded below.
 
 ## Copy directly on the TV
 
@@ -32,7 +30,11 @@ For example, put a rainy evening photo in **Auto Wallpaper → rain → evening*
 
 Selection checks weather + time, weather + all, any + time, then any + all. Multiple photos in a group use a 30-minute selection slot; the visible change occurs at an existing weather refresh, a time-period boundary, or the next visit to Home. There is no extra 30-minute polling service. When no matching local photo exists, SwiftOS checks its earlier weather-photo folders and otherwise keeps the current wallpaper.
 
-This build reuses SwiftOS's existing **Kolkata weather** configuration. It does not infer your location or add new weather requests. All documented forecast codes map to a weather family; unknown values use fallback photos.
+All documented Open-Meteo weather codes map to a weather family; unknown or stale weather falls back to `unknown` / `any` photos.
+
+## Cold-boot theme and opacity persistence (build 25)
+
+On-TV theme selections (`ThemePicker`) and icon background opacity settings commit synchronously via `.commit()`, keep fallback copies of `config.json` and `wallpaper.jpg` in private internal storage, and never wipe user customizations during cold boot when external storage mounts asynchronously.
 
 ## Resource limits
 
@@ -43,10 +45,12 @@ This build reuses SwiftOS's existing **Kolkata weather** configuration. It does 
 - The active photo consumes bitmap memory. One measured Mi TV load used 4,147,200 bitmap bytes, 389 ms elapsed and 163 ms worker CPU time. These are single-load samples, not a general responsiveness or memory guarantee.
 - A hidden-Home sample fell from about 31.4 MiB to 21.6 MiB PSS after releasing the automatic image. PSS varies and the TV does not report complete graphics memory. Long-duration playback and physical remote testing remain pending.
 
-Uploaded photos remain on the TV when you turn Auto off or restore its enabled setting. Restore does not delete a photo collection. The two temporary test photos were removed and Auto was returned to its original Off state after validation.
+Uploaded photos remain on the TV when you turn Auto off or restore its enabled setting. Restore does not delete a photo collection.
 
 ## Verification
 
-Build 24 passed 257 Android JVM tests, release lint, R8, signer continuity and artwork integrity checks. On the Mi TV, the installed APK hash matched the release, photo permission was already granted, cloudy/evening selection and generic fallback displayed correctly, and the provider returned the expected On/Off state. SwiftOS's process-specific runtime error check was clear during the bounded test. Weather families and time boundaries are also covered by unit tests; every real weather condition was not physically reproduced.
+Build 25 (`3.0.2-swiftos`, `versionCode 25`) passed **260** Android JVM tests, release lint, R8, signer continuity (`e0e52087919f09bb6bfe5d5fc7e986b643a2bf1f3d49b40e8827f87e3ac5f986`) and 156 pixel-verified artwork integrity checks.
 
-Build 24 SHA-256: `0c86c2542294a5468204acf3bf79c468051d270b6997dde7dabdaf92454a572b`.
+The underlying cold-reboot persistence fix and App Library optimization were previously installed and verified on one Android TV as build 24 (`3.0.1-swiftos`) on 2 November 2026, alongside earlier bounded Mi TV local-wallpaper smoke checks (photo permission, cloudy/evening selection, generic fallback, and restoring Auto wallpaper to Off). The renumbered build 25 APK passed all offline build and JVM unit-test gates and has not yet been re-installed onto hardware.
+
+Build 25 SHA-256: `c3209b1194650f05056ea40ac4b1ed66a300249e3cae81f34de1036778b50859`.

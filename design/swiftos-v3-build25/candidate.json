@@ -1,0 +1,18 @@
+{
+    "Package":  "com.gathin.tvhome",
+    "VersionCode":  25,
+    "VersionName":  "3.0.2-swiftos",
+    "BasedOn":  "SwiftOS 2.7 build22, selective Library reveal fix; no full upstream CleanYourTV v3 rebase",
+    "Apk":  "launchers/candidates/SwiftOS-3.0.2-25.apk",
+    "SHA256":  "C3209B1194650F05056EA40AC4B1ED66A300249E3CAE81F34DE1036778B50859",
+    "Bytes":  3514491,
+    "Tests":  260,
+    "SignerSHA256":  "e0e52087919f09bb6bfe5d5fc7e986b643a2bf1f3d49b40e8827f87e3ac5f986",
+    "R8":  true,
+    "LintCompleted":  true,
+    "DeviceValidated":  false,
+    "BaselineSHA256":  "FF6F0C1F93C086E803532F40B7B2165E1C820CD62E588DA233FCDF96A4123C06",
+    "ArtworkEncoding":  "Lossless optimized PNG",
+    "ArtworkNativePixelComparisons":  156,
+    "ArtworkProofSHA256":  "4BD36377B8F21F0ECDB40CCDF72E36E81FC45B6CBE9D55F39B50D1F6422FFC48"
+}

@@ -1,12 +1,16 @@
-param([switch]$DownloadOnly, [switch]$NativeOnly)
+param([switch]$DownloadOnly, [switch]$NativeOnly, [switch]$WebView2Only)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $toolRoot = Join-Path $repo '.tools'
 New-Item -ItemType Directory -Force -Path $toolRoot | Out-Null
-$sources = @{
-  'rustup-init.exe' = 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe'
-  'portable-msvc.py' = 'https://gist.githubusercontent.com/mmozeiko/7f3162ec2988e81e56d5c4e22cde9977/raw/portable-msvc.py'
-  'webview2-page.html' = 'https://developer.microsoft.com/en-us/microsoft-edge/webview2/'
+$sources = if ($WebView2Only) {
+  @{ 'webview2-page.html' = 'https://developer.microsoft.com/en-us/microsoft-edge/webview2/' }
+} else {
+  @{
+    'rustup-init.exe' = 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe'
+    'portable-msvc.py' = 'https://gist.githubusercontent.com/mmozeiko/7f3162ec2988e81e56d5c4e22cde9977/raw/portable-msvc.py'
+    'webview2-page.html' = 'https://developer.microsoft.com/en-us/microsoft-edge/webview2/'
+  }
 }
 foreach ($entry in $sources.GetEnumerator()) {
   $destination = Join-Path $toolRoot $entry.Key
@@ -26,13 +30,15 @@ if ($NativeOnly) {
   } finally { Pop-Location }
   return
 }
-$env:RUSTUP_HOME = Join-Path $toolRoot 'rustup'
-$env:CARGO_HOME = Join-Path $toolRoot 'cargo'
-if (-not (Test-Path -LiteralPath (Join-Path $env:CARGO_HOME 'bin\cargo.exe'))) {
-  & (Join-Path $toolRoot 'rustup-init.exe') -y --no-modify-path --profile minimal --default-toolchain stable-x86_64-pc-windows-msvc
-  if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain bootstrap failed.' }
+if (-not $WebView2Only) {
+  $env:RUSTUP_HOME = Join-Path $toolRoot 'rustup'
+  $env:CARGO_HOME = Join-Path $toolRoot 'cargo'
+  if (-not (Test-Path -LiteralPath (Join-Path $env:CARGO_HOME 'bin\cargo.exe'))) {
+    & (Join-Path $toolRoot 'rustup-init.exe') -y --no-modify-path --profile minimal --default-toolchain stable-x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain bootstrap failed.' }
+  }
+  Write-Host "Rust installed in $env:CARGO_HOME"
 }
-Write-Host "Rust installed in $env:CARGO_HOME"
 $runtimeParent = Join-Path $toolRoot 'webview2'
 $runtimeExe = Get-ChildItem -LiteralPath $runtimeParent -Filter 'msedgewebview2.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $runtimeExe) {

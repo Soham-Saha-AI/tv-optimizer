@@ -10,7 +10,7 @@ $env:PATH = "$(Join-Path $env:CARGO_HOME 'bin');$env:PATH"
 $manifest = Join-Path $repo 'src-tauri\Cargo.toml'
 if ($SwiftOSV3 -and $FetchOnly) { throw '-SwiftOSV3 cannot be combined with -FetchOnly.' }
 if ($SwiftOSV3 -and $Release) {
-  $candidate = Join-Path $repo 'launchers\candidates\SwiftOS-3.0.1-24.apk'
+  $candidate = Join-Path $repo 'launchers\candidates\SwiftOS-3.0.2-25.apk'
   if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { throw 'SwiftOS v3 candidate APK is missing. Build and review it first.' }
   $variantSource = Get-Content -LiteralPath (Join-Path $repo 'src-tauri\src\launcher_variant.rs') -Raw
   $match = [regex]::Match($variantSource, '(?s)#\[cfg\(feature = "swiftos-v3-candidate"\)\]\s*pub const SWIFTOS_HASH: &str = "([^"]+)";')
@@ -45,7 +45,7 @@ try {
   if ($Release) {
     $variant = if ($SwiftOSV3) { 'swiftos-v3-candidate' } else { 'default' }
     $receiptPath = Join-Path $toolRoot 'last-build-receipt.json'
-    $launcherApk = if ($SwiftOSV3) { Join-Path $repo 'launchers\candidates\SwiftOS-3.0.1-24.apk' } else { Join-Path $repo 'launchers\liquid-glass.apk' }
+    $launcherApk = if ($SwiftOSV3) { Join-Path $repo 'launchers\candidates\SwiftOS-3.0.2-25.apk' } else { Join-Path $repo 'launchers\liquid-glass.apk' }
     $variantSource = Get-Content -LiteralPath (Join-Path $repo 'src-tauri\src\launcher_variant.rs') -Raw
     $hashPattern = if ($SwiftOSV3) { '(?s)#\[cfg\(feature = "swiftos-v3-candidate"\)\]\s*pub const SWIFTOS_HASH: &str = "([^"]+)";' } else { '(?s)#\[cfg\(not\(feature = "swiftos-v3-candidate"\)\)\]\s*pub const SWIFTOS_HASH: &str = "([^"]+)";' }
     $versionPattern = if ($SwiftOSV3) { '(?s)#\[cfg\(feature = "swiftos-v3-candidate"\)\]\s*pub const SWIFTOS_VERSION_CODE: u64 = (\d+);' } else { '(?s)#\[cfg\(not\(feature = "swiftos-v3-candidate"\)\)\]\s*pub const SWIFTOS_VERSION_CODE: u64 = (\d+);' }

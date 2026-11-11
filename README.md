@@ -2,11 +2,11 @@
 
 **Created and maintained by [Soham Saha](https://github.com/Soham-Saha-AI).** TV Optimizer is an independent Android TV utility. Contributions are welcome through issues and pull requests; official releases are published by the maintainer.
 
-**[Download TV Optimizer for Windows](https://github.com/Soham-Saha-AI/tv-optimizer/releases/latest/download/TV-Optimizer-0.1.0-SwiftOS-v3-Windows-x64.zip)** · [All releases](https://github.com/Soham-Saha-AI/tv-optimizer/releases)
+**[Download TV Optimizer for Windows](https://github.com/Soham-Saha-AI/tv-optimizer/releases/latest/download/TV-Optimizer-0.1.1-SwiftOS-v3-Windows-x64.zip)** · [All releases](https://github.com/Soham-Saha-AI/tv-optimizer/releases)
 
 
 
-**28 October portable update:** the native Windows release now builds successfully and all 63 native tests pass. This update includes the overview, confirmation-flow and Wallpaper Engine changes, plus SwiftOS v3 build24 with the unchanged tested build23 and build22 APKs retained. No Windows security settings were changed. See [portable update status](docs/PORTABLE-UPDATE-2026-10-28.md) and [Wallpaper Engine](docs/WALLPAPER-ENGINE.md).
+**11 November portable update (0.1.1):** bundles **SwiftOS v3 build 25** (`3.0.2-swiftos`), which fixes cold-boot theme and icon-opacity persistence across full TV power cycles and includes App Library `RecyclerView` cache tuning. The unchanged tested build 23 and build 22 APKs remain retained separately. Built reproducibly via GitHub Actions; no Windows security settings were changed. See [11 November release notes](docs/PORTABLE-UPDATE-2026-11-11.md), [28 October update status](docs/PORTABLE-UPDATE-2026-10-28.md) and [Wallpaper Engine](docs/WALLPAPER-ENGINE.md).
 
 A portable Windows utility to inspect an Android TV, explain compatible changes, and keep a restore point for each change. Processing and history stay on your computer. Recommendations are never selected automatically.
 
@@ -40,7 +40,7 @@ The separate help and documentation explain compatibility and restoration. Analy
 
 ## Testing status — read before use
 
-Testing is limited and device-specific. The 28 October Windows source update passes 63 native Rust tests and the TypeScript/Vite release build. Earlier frontend checks passed 23 tests and isolated browser flows. SwiftOS build 24 passed 257 Android JVM tests, release lint, R8, signer continuity, and bounded wallpaper checks on one Mi TV model. The updated Windows package has not been validated on a clean Windows VM, and this source-package update did not repeat TV tests. Long-duration playback and several physical remote-button checks remain incomplete. Compatibility on other TV models and firmware is not established by these results.
+Testing is limited and device-specific. The **0.1.1** Windows build passes 63 native Rust tests, 23 frontend Vitest tests, TypeScript/Vite release build, and package integrity checks on GitHub Actions (`windows-latest`). SwiftOS build 25 (`3.0.2-swiftos`) passed 260 Android JVM tests, release lint, R8, signer continuity and 156 lossless-PNG pixel checks. The cold-reboot persistence and App Library fixes were previously verified on one Android TV as build 24 on 2 November 2026 alongside earlier bounded local-wallpaper checks; the renumbered build 25 APK and this CI-built Windows ZIP have not yet been executed end-to-end on physical TV hardware or a clean Windows VM. Note that unless signed with a trusted Authenticode certificate, Windows Smart App Control may block running an unsigned executable directly. Long-duration playback and several physical remote-button checks remain incomplete. Compatibility on other TV models and firmware is not established by these results.
 
 Use the documented compatibility checks, keep a restore point, and review each operation. Back up anything important before changing TV settings. Performance, remote behavior and app compatibility can differ by model, firmware, installed apps and network configuration.
 
