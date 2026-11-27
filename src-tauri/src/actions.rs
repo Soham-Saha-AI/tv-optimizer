@@ -17,6 +17,12 @@ pub struct Engine { pub root:PathBuf,pub adb:Adb,pub journal:Journal,pub cancell
 pub fn dns_hostname(value:&str)->Option<&'static str> {
     match value { "adguard"|"dns.adguard-dns.com"=>Some("dns.adguard-dns.com"),"pro"|"x-hagezi-pro.freedns.controld.com"=>Some("x-hagezi-pro.freedns.controld.com"),"proplus"|"x-hagezi-proplus.freedns.controld.com"=>Some("x-hagezi-proplus.freedns.controld.com"),"ultimate"|"x-hagezi-ultimate.freedns.controld.com"=>Some("x-hagezi-ultimate.freedns.controld.com"),_=>None }
 }
+pub fn resolve_dns_hostname(value:&str)->Option<String> {
+    if let Some(host)=dns_hostname(value){return Some(host.into());}
+    let lower=value.trim().to_ascii_lowercase();
+    if let Some(host)=dns_hostname(&lower){return Some(host.into());}
+    crate::recommendations::is_valid_custom_dns_hostname(&lower).then_some(lower)
+}
 fn is_launcher(id:&str)->bool { [CUSTOM,ORIGINAL,GOOGLE,PATCHWALL,PATCHWALL_LEGACY].contains(&id) }
 fn resource_key(a:&ActionRequest)->String { if ["disable","enable","uninstall","force_stop"].contains(&a.kind.as_str()){format!("package:{}",a.target)}else{a.kind.clone()} }
 fn valid_component(component:&str)->bool { component.split_once('/').map(|(p,c)|validate_package(p)&&!c.is_empty()&&c.bytes().all(|b|b.is_ascii_alphanumeric()||b"._$".contains(&b))).unwrap_or(false) }
@@ -119,7 +125,7 @@ impl Engine {
                 }
             },
             "animations"=>{if !crate::recommendations::capability(s,"Animations capability")||!["0","0.5","1"].contains(&a.value.as_str()){return Err("The scan could not verify this animation control.".into());}for k in animation_keys(){require_setting(s,k)?;}},
-            "dns"=>{if !crate::recommendations::capability(s,"Private DNS")||s.identity.api<28||dns_hostname(&a.value).is_none(){return Err("This DNS choice requires a compatible Android 9+ TV with working Private DNS controls.".into());}for k in dns_keys(){require_setting(s,k)?;}},
+            "dns"=>{if !crate::recommendations::capability(s,"Private DNS")||s.identity.api<28||(a.value!="default"&&resolve_dns_hostname(&a.value).is_none()){return Err("This DNS choice requires a compatible Android 9+ TV with a valid Private DNS hostname.".into());}for k in dns_keys(){require_setting(s,k)?;}},
             "patchwall_startup"=>{if s.profile.is_none()||a.value!="0"{return Err("This startup override is only verified on the matching Mi TV firmware.".into());}require_setting(s,"global/set_patchwall_default")?;if !self.confirmed_home(s)?{return Err("Confirm your replacement Home first.".into());}},
             "wallpaper_auto"=>{if s.identity.user_id!=0||!scanner::matches_profile(&s.identity)||a.target!="swiftos/auto_wallpaper"||!matches!(a.value.as_str(),"0"|"1"){return Err("This local wallpaper control is supported only on the validated Mi TV profile.".into());}require_setting(s,"swiftos/auto_wallpaper")?;if a.value=="1"&&!crate::recommendations::capability(s,"Local wallpaper photo access"){return Err("Allow SwiftOS photo access on the TV, then scan again before enabling local wallpaper.".into());}},
             "install_launcher"=>{if a.target==CUSTOM{if !scanner::matches_profile(&s.identity){return Err("SwiftOS is currently validated only for the Mi TV 4A Pro firmware profile.".into());}let maximum=if a.value=="build22"{22}else{crate::launcher_variant::SWIFTOS_VERSION_CODE};if s.packages.iter().any(|p|p.id==CUSTOM&&p.installed&&p.version_code>maximum){return Err("A newer SwiftOS is installed. Automatic downgrades are blocked to preserve your settings; the older APK stays in the package.".into());}}if s.identity.api<26{return Err("These launchers require Android TV 8 or later.".into());}if ![CUSTOM,ORIGINAL].contains(&a.target.as_str()){return Err("Only verified launchers can be installed.".into());}if a.target==ORIGINAL{let(_,ready)=crate::builder::original_path(&self.root)?;if s.identity.api<ready.minimum_sdk{return Err("This release needs a newer Android version than your TV provides.".into());}}self.launcher_path(&a.target,&a.value)?;},
@@ -220,11 +226,19 @@ impl Engine {
             "wallpaper_auto"=>crate::wallpapers::set_mode(&self.adb,serial,a.value=="1")?,
             "animations"=>{for k in animation_keys(){self.put_setting(serial,k,Some(&a.value))?;}},
             "dns"=>{
-                let host=dns_hostname(&a.value).ok_or("Unsupported DNS provider")?;
-                self.put_setting(serial,"global/private_dns_specifier",Some(host))?;self.put_setting(serial,"global/private_dns_mode",Some("hostname"))?;
-                let mut validated=false;
-                for _ in 0..8 {thread::sleep(Duration::from_millis(750));let output=self.adb.shell(serial,"dumpsys connectivity")?;if dns_network_validated(&output,host){validated=true;break;}}
-                if !validated{return Err("The TV did not confirm a validated connection with this DNS provider.".into());}
+                if a.value=="default" {
+                    self.put_setting(serial,"global/private_dns_specifier",None)?;
+                    self.put_setting(serial,"global/private_dns_mode",None)?;
+                    let mut validated=false;
+                    for _ in 0..8 {thread::sleep(Duration::from_millis(750));let output=self.adb.shell(serial,"dumpsys connectivity")?;if default_dns_network_validated(&output){validated=true;break;}}
+                    if !validated{return Err("The TV did not confirm a validated connection with default DNS settings.".into());}
+                } else {
+                    let host=resolve_dns_hostname(&a.value).ok_or("Unsupported or invalid Private DNS hostname")?;
+                    self.put_setting(serial,"global/private_dns_specifier",Some(&host))?;self.put_setting(serial,"global/private_dns_mode",Some("hostname"))?;
+                    let mut validated=false;
+                    for _ in 0..8 {thread::sleep(Duration::from_millis(750));let output=self.adb.shell(serial,"dumpsys connectivity")?;if dns_network_validated(&output,&host){validated=true;break;}}
+                    if !validated{return Err("The TV did not confirm a validated connection with this DNS provider.".into());}
+                }
                 // A successful sinkholed ad-domain response alone cannot prove working Internet.
                 let probe=self.adb.shell(serial,"ping -c 1 -W 3 www.google.com >/dev/null 2>&1; echo tvopt_dns_exit=$?")?;
                 if !probe.contains("tvopt_dns_exit=0"){return Err("The ordinary Internet connectivity test failed. This network may block the probe; previous DNS will be restored.".into());}
@@ -356,7 +370,14 @@ impl Engine {
             "wallpaper_auto"=>crate::wallpapers::set_mode(&self.adb,serial,before["swiftos/auto_wallpaper"].as_str().ok_or("Missing previous wallpaper setting")?=="1")?,
             "animations"|"dns"|"patchwall_startup"=>{
                 let values=before.as_object().ok_or("Invalid settings backup")?;
-                for (key,value) in values {split_setting(key)?;self.put_setting(serial,key,value.as_str())?;}
+                if r.kind=="dns" {
+                    for key in ["global/private_dns_specifier","global/private_dns_mode"] {
+                        let value=values.get(key).ok_or("Invalid saved settings")?;
+                        self.put_setting(serial,key,value.as_str())?;
+                    }
+                } else {
+                    for (key,value) in values {split_setting(key)?;self.put_setting(serial,key,value.as_str())?;}
+                }
             },
             "set_home"=>{
                 let commands=home_restore_commands(before,r.user_id)?;
@@ -433,7 +454,7 @@ fn split_setting(key:&str)->Result<(&str,&str),String>{
     let pair=key.split_once('/').ok_or("Invalid setting key")?;
     if !animation_keys().contains(&key)&&!dns_keys().contains(&key)&&key!="global/set_patchwall_default"{return Err("This setting is not writable through the optimizer".into());}Ok(pair)
 }
-fn label(a:&ActionRequest)->String{match a.kind.as_str(){"disable"=>format!("Disable {}",a.target),"enable"=>format!("Enable {}",a.target),"uninstall"=>format!("Remove {} for this TV user",a.target),"force_stop"=>format!("Temporarily close {}",a.target),"animations"=>format!("Animation speed {}×",a.value),"dns"=>"Change DNS ad protection".into(),"patchwall_startup"=>"Use preferred Home at Mi TV startup".into(),"set_home"=>"Change preferred Home screen".into(),"install_launcher"=>if a.target==CUSTOM{"Install SwiftOS"}else{"Install original CleanYourTV"}.into(),"trim_cache"=>"Free rebuildable cache".into(),_=>a.kind.clone()}}
+fn label(a:&ActionRequest)->String{match a.kind.as_str(){"disable"=>format!("Disable {}",a.target),"enable"=>format!("Enable {}",a.target),"uninstall"=>format!("Remove {} for this TV user",a.target),"force_stop"=>format!("Temporarily close {}",a.target),"animations"=>format!("Animation speed {}×",a.value),"dns"=>if a.value=="default"{"Use default TV DNS (turn off Private DNS)".into()}else if dns_hostname(&a.value).is_some(){"Change DNS ad protection".into()}else{format!("Use custom Private DNS ({})",a.value.trim())},"patchwall_startup"=>"Use preferred Home at Mi TV startup".into(),"set_home"=>"Change preferred Home screen".into(),"install_launcher"=>if a.target==CUSTOM{"Install SwiftOS"}else{"Install original CleanYourTV"}.into(),"trim_cache"=>"Free rebuildable cache".into(),_=>a.kind.clone()}}
 fn package_state(p:Option<&PackageInfo>)->Value{match p{Some(p)=>json!({"installed":p.installed,"enabled":p.enabled,"system":p.system,"version_code":p.version_code}),None=>json!({"installed":false,"enabled":null,"system":false,"version_code":0})}}
 fn home_state(s:&DeviceSnapshot)->Value{
         let mut launchers=serde_json::Map::new();for id in [GOOGLE,PATCHWALL,PATCHWALL_LEGACY,CUSTOM,ORIGINAL]{if let Some(p)=s.packages.iter().find(|p|p.id==id){launchers.insert(id.into(),json!({"installed":p.installed,"enabled":p.enabled}));}}
@@ -454,7 +475,7 @@ fn verify_action(s:&DeviceSnapshot,a:&ActionRequest)->Result<(),String>{
         "install_launcher"=>package(s,&a.target).map(active).unwrap_or(false),
         "set_home"=>s.home_component.as_deref().map(|h|normalize_component(h)==normalize_component(&a.target)).unwrap_or(false),
         "animations"=>animation_keys().iter().all(|k|s.settings.get(*k).and_then(|v|v.as_deref()).and_then(|v|v.parse::<f32>().ok())==a.value.parse::<f32>().ok()),
-        "dns"=>s.settings.get("global/private_dns_mode").and_then(|v|v.as_deref())==Some("hostname")&&s.settings.get("global/private_dns_specifier").and_then(|v|v.as_deref())==dns_hostname(&a.value),
+        "dns"=>if a.value=="default"{s.settings.get("global/private_dns_mode").and_then(|v|v.as_deref()).is_none()&&s.settings.get("global/private_dns_specifier").and_then(|v|v.as_deref()).is_none()}else{s.settings.get("global/private_dns_mode").and_then(|v|v.as_deref())==Some("hostname")&&s.settings.get("global/private_dns_specifier").and_then(|v|v.as_deref())==resolve_dns_hostname(&a.value).as_deref()},
         "wallpaper_auto"=>s.settings.get("swiftos/auto_wallpaper").and_then(|v|v.as_deref())==Some(a.value.as_str()),"patchwall_startup"=>s.settings.get("global/set_patchwall_default").and_then(|v|v.as_deref())==Some("0"),"force_stop"|"trim_cache"=>true,_=>false
     };if okay{Ok(())}else{Err("The TV did not match the requested state after the operation.".into())}
 }
@@ -499,15 +520,25 @@ fn parse_apk_paths(output:&str)->Result<Vec<String>,String>{
     let mut paths=vec![];for line in output.lines(){let p=line.trim().strip_prefix("package:").ok_or("Unexpected APK path response; backup was blocked")?;if !p.starts_with('/')||!p.ends_with(".apk")||p.contains('\0')||p.split('/').any(|s|s==".."){return Err("Invalid app APK path; backup was blocked".into());}if !paths.iter().any(|known|known==p){paths.push(p.to_string());}}
     if paths.is_empty()||paths.len()>100{return Err("Could not locate all app APKs; uninstall/update was blocked before making a change.".into());}Ok(paths)
 }
-fn dns_network_validated(output:&str,hostname:&str)->bool{
-    let active=output.lines().find_map(|line|line.trim().strip_prefix("Active default network:").map(str::trim)).filter(|id|!id.is_empty()&&id.bytes().all(|b|b.is_ascii_digit()));
-    let Some(active)=active else{return false;};
+fn validated_default_network_line(output:&str)->Option<&str>{
+    let active=output.lines().find_map(|line|line.trim().strip_prefix("Active default network:").map(str::trim)).filter(|id|!id.is_empty()&&id.bytes().all(|b|b.is_ascii_digit()))?;
     // NetworkAgentInfo is the current network summary; old event logs and listener requests are not evidence.
-    output.lines().filter(|line|line.trim_start().starts_with("NetworkAgentInfo{")).any(|line|{
-        let server=line.split_once("PrivateDnsServerName:").and_then(|(_,rest)|rest.split_whitespace().next());
+    output.lines().find(|line|{
         let capabilities=line.split_once("Capabilities:").map(|(_,rest)|rest.split("Unwanted:").next().unwrap_or(""));
-        line.contains(&format!("network{{{active}}}"))&&(line.contains("UsePrivateDns: true")||line.contains("PrivateDnsActive: true"))&&server==Some(hostname)&&capabilities.map(|c|c.split(|ch:char|!ch.is_ascii_uppercase()&&ch!='_').any(|c|c=="VALIDATED")).unwrap_or(false)
+        line.trim_start().starts_with("NetworkAgentInfo{")&&line.contains(&format!("network{{{active}}}"))&&capabilities.map(|c|c.split(|ch:char|!ch.is_ascii_uppercase()&&ch!='_').any(|c|c=="VALIDATED")).unwrap_or(false)
     })
+}
+fn dns_network_validated(output:&str,hostname:&str)->bool{
+    validated_default_network_line(output).map(|line|{
+        let server=line.split_once("PrivateDnsServerName:").and_then(|(_,rest)|rest.split_whitespace().next());
+        (line.contains("UsePrivateDns: true")||line.contains("PrivateDnsActive: true"))&&server==Some(hostname)
+    }).unwrap_or(false)
+}
+fn default_dns_network_validated(output:&str)->bool{
+    validated_default_network_line(output).map(|line|{
+        let server=line.split_once("PrivateDnsServerName:").and_then(|(_,rest)|rest.split_whitespace().next());
+        server.map(|s|s=="null"||s.parse::<std::net::IpAddr>().is_ok()).unwrap_or(true)
+    }).unwrap_or(false)
 }
 
 #[cfg(test)]mod tests{
@@ -544,7 +575,9 @@ fn dns_network_validated(output:&str,hostname:&str)->bool{
     #[test]fn timer_ack_is_checked_before_recovery(){let v=json!({"home_component":"com.gathin.tvhome/.MainActivity","launchers":{CUSTOM:{"installed":true,"enabled":1}},"patchwall_startup":"0"});let t=uuid::Uuid::new_v4().to_string();let s=rollback_script(&v,0,&t,150).unwrap();assert!(s.contains("sleep 150 & wait"));assert!(s.find("home-ok").unwrap()<s.find("pm enable").unwrap());assert!(rollback_script(&v,0,"bad;id",150).is_err());}
     #[test]fn only_whitelisted_settings_writable(){assert!(split_setting("global/private_dns_mode").is_ok());assert!(split_setting("secure/enabled_accessibility_services").is_err());assert!(split_setting("global/foo;id").is_err());}
     #[test]fn split_apk_backups_include_configuration_and_feature_splits(){let paths=parse_apk_paths("package:/data/app/com.example/base.apk\npackage:/data/app/com.example/split_config.arm64_v8a.apk\npackage:/data/app/com.example/split_feature.apk\n").unwrap();assert_eq!(paths.len(),3);assert!(parse_apk_paths("").is_err());assert!(parse_apk_paths("package:/data/app/../wrong.apk").is_err());assert!(parse_apk_paths("Error: package inaccessible").is_err());}
-    #[test]fn dns_validation_ignores_old_logs_and_other_networks(){let current="Active default network: 100\nCurrent Networks:\n NetworkAgentInfo{network{100} lp{UsePrivateDns: true PrivateDnsServerName: dns.adguard-dns.com Domains: null} nc{Capabilities: INTERNET&VALIDATED Unwanted: }}\n";assert!(dns_network_validated(current,"dns.adguard-dns.com"));assert!(!dns_network_validated(current,"x-hagezi-pro.freedns.controld.com"));let stale="Active default network: 100\n NetworkAgentInfo{network{101} UsePrivateDns: true PrivateDnsServerName: dns.adguard-dns.com Capabilities: INTERNET&VALIDATED Unwanted: }\n 2026 log network{100} UsePrivateDns: true PrivateDnsServerName: dns.adguard-dns.com Capabilities: VALIDATED\n";assert!(!dns_network_validated(stale,"dns.adguard-dns.com"));assert!(!dns_network_validated(&current.replace("UsePrivateDns: true","UsePrivateDns: false"),"dns.adguard-dns.com"));}
+    #[test]fn dns_validation_ignores_old_logs_and_other_networks(){let current="Active default network: 100\nCurrent Networks:\n NetworkAgentInfo{network{100} lp{UsePrivateDns: true PrivateDnsServerName: dns.adguard-dns.com Domains: null} nc{Capabilities: INTERNET&VALIDATED Unwanted: }}\n";assert!(dns_network_validated(current,"dns.adguard-dns.com"));assert!(!dns_network_validated(current,"x-hagezi-pro.freedns.controld.com"));assert!(!default_dns_network_validated(current));assert!(!default_dns_network_validated(&current.replace("dns.adguard-dns.com","dns.quad9.net")));let cleared="Active default network: 100\nCurrent Networks:\n NetworkAgentInfo{network{100} lp{UsePrivateDns: false PrivateDnsServerName: null Domains: null} nc{Capabilities: INTERNET&VALIDATED Unwanted: }}\n";assert!(default_dns_network_validated(cleared));let stale="Active default network: 100\n NetworkAgentInfo{network{101} UsePrivateDns: true PrivateDnsServerName: dns.adguard-dns.com Capabilities: INTERNET&VALIDATED Unwanted: }\n 2026 log network{100} UsePrivateDns: true PrivateDnsServerName: dns.adguard-dns.com Capabilities: VALIDATED\n";assert!(!dns_network_validated(stale,"dns.adguard-dns.com"));assert!(!default_dns_network_validated(stale));assert!(!dns_network_validated(&current.replace("UsePrivateDns: true","UsePrivateDns: false"),"dns.adguard-dns.com"));}
+    #[test]fn default_dns_verification_requires_cleared_global_settings(){let mut s=restore_snapshot();s.settings.insert("global/private_dns_mode".into(),None);s.settings.insert("global/private_dns_specifier".into(),None);let req=ActionRequest{kind:"dns".into(),target:"private_dns".into(),value:"default".into()};assert!(verify_action(&s,&req).is_ok());s.settings.insert("global/private_dns_mode".into(),Some("off".into()));assert!(verify_action(&s,&req).is_err());s.settings.insert("global/private_dns_mode".into(),None);s.settings.insert("global/private_dns_specifier".into(),Some("dns.adguard-dns.com".into()));assert!(verify_action(&s,&req).is_err());}
+    #[test]fn custom_dns_hostname_resolution_and_verification(){assert_eq!(resolve_dns_hostname("abc123.dns.nextdns.io").as_deref(),Some("abc123.dns.nextdns.io"));assert_eq!(resolve_dns_hostname("ABC123.dns.nextdns.io").as_deref(),Some("abc123.dns.nextdns.io"));assert!(resolve_dns_hostname("custom").is_none());assert!(resolve_dns_hostname("1.1.1.1").is_none());let mut s=restore_snapshot();s.settings.insert("global/private_dns_mode".into(),Some("hostname".into()));s.settings.insert("global/private_dns_specifier".into(),Some("abc123.dns.nextdns.io".into()));assert!(verify_action(&s,&ActionRequest{kind:"dns".into(),target:"private_dns".into(),value:" ABC123.dns.nextdns.io ".into()}).is_ok());}
     #[test]fn home_confirmation_and_rollback_share_atomic_lock(){let token=uuid::Uuid::new_v4().to_string();let v=json!({"home_component":"com.gathin.tvhome/.MainActivity","launchers":{CUSTOM:{"installed":true,"enabled":0}},"patchwall_startup":null});let timer=rollback_script(&v,0,&token,150).unwrap();let confirm=home_confirmation_script(&token).unwrap();let lock=format!("home-lock-{token}");assert!(timer.contains(&format!("mkdir /data/local/tmp/tvoptimizer/{lock}")));assert!(confirm.contains(&format!("mkdir /data/local/tmp/tvoptimizer/{lock}")));assert!(confirm.find("watchdog-").unwrap()<confirm.find("printf confirmed").unwrap());assert!(timer.contains("else printf failed"));assert!(home_defuse_script(&token).unwrap().contains("printf restored"));}
     #[test]fn generic_previous_home_preserves_manifest_default(){let v=json!({"home_component":"com.vendor.home/.HomeActivity","launchers":{"com.vendor.home":{"installed":true,"enabled":0},CUSTOM:{"installed":true,"enabled":1}},"patchwall_startup":null});let commands=home_restore_commands(&v,0).unwrap();assert!(commands.starts_with("pm default-state --user 0 'com.vendor.home'"));let missing=json!({"home_component":"com.vendor.home/.HomeActivity","launchers":{},"patchwall_startup":null});assert!(home_restore_commands(&missing,0).is_err());}
 }

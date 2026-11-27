@@ -31,6 +31,7 @@ export function orderedItems(items:BasketItem[]){const order:Record<string,numbe
 export function isActionableRecommendation(item:Recommendation,homeConfirmed:boolean){
  if(!item.supported||item.already_applied||item.area==='User apps'||['force_stop','uninstall','enable'].includes(item.action.kind))return false;
  if(item.action.kind==='animations'&&item.action.value==='1')return false;
+ if(item.action.kind==='dns'&&(item.action.value==='default'||item.action.value==='custom'))return false;
  if(item.action.kind==='disable'&&['com.google.android.tvlauncher','com.mitv.tvhome.atv','com.mitv.tvhome'].includes(item.action.target)&&!homeConfirmed)return false;
  return true;
 }
@@ -42,7 +43,9 @@ export function optimizationsFound(snapshot:DeviceSnapshot,recommendations:Recom
  }
  const scales=['global/window_animation_scale','global/transition_animation_scale','global/animator_duration_scale'].map(key=>snapshot.settings[key]);
  if(scales.every(value=>value!==null&&value!==undefined&&value.trim()!==''&&Number.isFinite(Number(value))&&Number(value)>=0&&Number(value)<1))notes.push(scales.every(value=>Number(value)===0)?'System animations are off.':'System animations use reduced timing.');
- const dns=recommendations.find(item=>item.action.kind==='dns'&&item.already_applied);if(dns)notes.push(`${dns.title.replace(/^Use /,'').replace(/ filtering$/,'')} DNS filtering is configured.`);
+ const dns=recommendations.find(item=>item.action.kind==='dns'&&item.action.value!=='default'&&item.action.value!=='custom'&&item.already_applied);
+ if(dns)notes.push(`${dns.title.replace(/^Use /,'').replace(/ filtering$/,'')} DNS filtering is configured.`);
+ else if(snapshot.settings['global/private_dns_mode']==='hostname'&&snapshot.settings['global/private_dns_specifier'])notes.push(`Custom Private DNS (${snapshot.settings['global/private_dns_specifier']}) is configured.`);
  const home=snapshot.packages.find(pkg=>pkg.installed&&snapshot.home_component?.startsWith(`${pkg.id}/`));
  if(home&&['com.gathin.tvhome','com.gathin.tvhome.original'].includes(home.id))notes.push(`${home.id==='com.gathin.tvhome.original'?'Original CleanYourTV':'SwiftOS'} is your preferred Home screen.`);
  return [...new Set(notes)];

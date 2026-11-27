@@ -1,17 +1,36 @@
 import {OnlineConsent} from './OnlineConsent';
-import {useState} from 'react';
+import {useState,type FormEvent} from 'react';
 import {isDesktop} from './api';
 import {deviceConnectionMessage} from './domain';
 import {Icon} from './ui';
 import type {Optimizer} from './useOptimizer';
 
+const LAST_IP_KEY='tv-optimizer.last-tv-ip';
+function isRememberableAddress(value:string){
+  const clean=value.trim();
+  return /^(\d{1,3}\.){3}\d{1,3}(:\d{1,5})?$/.test(clean)||/^\[[0-9a-fA-F:]+\](:\d{1,5})?$/.test(clean);
+}
 export function Setup({app}:{app:Optimizer}) {
-  const [address,setAddress]=useState('');
+  const [address,setAddress]=useState(()=>{try{return localStorage.getItem(LAST_IP_KEY)??'';}catch{return '';}});
   const [pairAddress,setPairAddress]=useState('');
   const [code,setCode]=useState('');
   const [step,setStep]=useState(0);
   const [searched,setSearched]=useState(false);
   const findTV=()=>{setSearched(true);return app.discover()};
+  const rememberAddress=(value:string)=>{
+    const clean=value.trim();
+    if(isRememberableAddress(clean)){try{localStorage.setItem(LAST_IP_KEY,clean);}catch{}}
+  };
+  const scanTV=(serial:string)=>{
+    rememberAddress(serial.replace(/:5555$/,''));
+    app.inspect(serial);
+  };
+  const connectTV=async(event:FormEvent)=>{
+    event.preventDefault();
+    const clean=address.trim();
+    const ok=await app.connect(clean);
+    if(ok)rememberAddress(clean);
+  };
   const steps=[
     {title:'Put both devices on the same network',text:'Connect your TV and this PC to the same home Wi-Fi or router. Keep the TV on.',icon:'wifi'},
     {title:'Allow a trusted connection',text:'On Android TV open Settings → Device preferences → About. Select Build seven times. Return to Developer options and turn on USB debugging or Network debugging.',icon:'setup'},
@@ -31,12 +50,12 @@ export function Setup({app}:{app:Optimizer}) {
         <section className="surface">
           <h2>Find my TV</h2><p>Look for TVs on your Wi-Fi or connected to this PC by USB. You may need to allow the connection on your TV.</p>
           <button className="primary" onClick={findTV} disabled={!!app.busy}><Icon name="search" size={16}/>{app.busy==='Searching for TVs'?'Finding your TV…':'Find my TV'}</button>
-          {app.devices.length>0?<ul className="device-list">{app.devices.map(device=><li key={device.serial}><div><strong>{device.model||'Android TV'}</strong><small>{deviceConnectionMessage(device.state)}</small><details><summary>Connection details</summary><small>{device.serial}</small></details></div><button disabled={!!app.busy||device.state!=='device'} onClick={()=>app.inspect(device.serial)}>{device.state==='unauthorized'?'Allow on TV first':device.state==='device'?'Scan this TV':'Not ready yet'}</button></li>)}</ul>:<p className="small muted">{searched?'No TV found yet. Check the TV’s permission prompt, try again, or enter its IP address below.':'Your TV will appear here. If it does not, enter its IP address below.'}</p>}
+          {app.devices.length>0?<ul className="device-list">{app.devices.map(device=><li key={device.serial}><div><strong>{device.model||'Android TV'}</strong><small>{deviceConnectionMessage(device.state)}</small><details><summary>Connection details</summary><small>{device.serial}</small></details></div><button className={device.state==='device'?'primary':undefined} disabled={!!app.busy||device.state!=='device'} onClick={()=>scanTV(device.serial)}>{device.state==='unauthorized'?'Allow on TV first':device.state==='device'?'Scan this TV':'Not ready yet'}</button></li>)}</ul>:<p className="small muted">{searched?'No TV found yet. Check that both devices use the same Wi-Fi name (not 2.4 GHz on one and 5 GHz on the other), check the TV permission prompt, or enter its IP address below.':'Your TV will appear here. If it does not, enter its IP address below.'}</p>}
           {app.devices.some(device=>device.state==='unauthorized')?<p className="permission-help">On the TV, choose <strong>Allow</strong> on the permission prompt. Then select <strong>Find my TV</strong> again.</p>:null}
-          <form onSubmit={event=>{event.preventDefault();app.connect(address.trim())}}>
+          <form onSubmit={connectTV}>
             <label htmlFor="tv-address">Your TV’s IP address</label>
             <div className="input-action"><input id="tv-address" type="text" autoComplete="off" spellCheck={false} placeholder="192.0.2.10" value={address} onChange={event=>setAddress(event.target.value)} aria-describedby="tv-address-help tv-port-help" required/><button disabled={!address.trim()||!!app.busy}>{app.busy==='Connecting to your TV'?'Connecting…':'Connect to TV'}</button></div>
-            <small id="tv-address-help">Find the IP address under TV Settings → Network. Enter the numbers exactly as shown.</small>
+            <small id="tv-address-help">Find the IP address under TV Settings → Network. Make sure TV and PC are on the exact same Wi-Fi name (2.4 GHz vs 5 GHz SSIDs are isolated on some routers).</small>
             <small id="tv-port-help">The usual connection port, 5555, is added automatically. If Wireless debugging shows a different connection port, paste that full address instead.</small>
           </form>
         </section>

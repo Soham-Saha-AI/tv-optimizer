@@ -56,8 +56,17 @@ impl Adb {
     pub fn connect(&self, address: &str) -> Result<String, String> {
         let address = normalize_address(address, true)?;
         let timeout=self.timeout.as_secs().min(15).max(1);
-        let output = self.with_timeout(timeout).run(&["connect", &address])?;
-        if ["failed", "unable", "cannot", "refused"].iter().any(|s| output.to_lowercase().contains(s)) { return Err(summarize(&output)); }
+        let output = match self.with_timeout(timeout).run(&["connect", &address]) {
+            Ok(out) => out,
+            Err(err) => {
+                let _ = self.with_timeout(4).run(&["disconnect", &address]);
+                return Err(friendly_connect_error(&address, &err));
+            }
+        };
+        if ["failed", "unable", "cannot", "refused"].iter().any(|s| output.to_lowercase().contains(s)) {
+            let _ = self.with_timeout(4).run(&["disconnect", &address]);
+            return Err(friendly_connect_error(&address, &output));
+        }
         Ok(output)
     }
 
@@ -99,6 +108,17 @@ impl Adb {
     }
 }
 
+fn friendly_connect_error(address: &str, raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    if lower.contains("10060") || lower.contains("timed out") || lower.contains("did not reply in time") {
+        return format!("Could not reach {address}. Make sure your TV is awake, both TV and PC use the exact same Wi-Fi name (2.4 GHz and 5 GHz bands on some routers cannot see each other), and check the IP under TV Settings -> Network.");
+    }
+    if lower.contains("10061") || lower.contains("refused") {
+        return format!("Your TV at {address} answered on Wi-Fi, but its debugging port refused the connection. Open TV Settings -> Developer options and turn USB / Network debugging off and back on (common after a full TV reboot), or pair using Wireless debugging if your TV shows a custom port.");
+    }
+    summarize(raw)
+}
+
 fn local_subnet_hosts(local:Ipv4Addr)->Vec<SocketAddr>{
     if !local.is_private(){return vec![];}
     let [a,b,c,own]=local.octets();(1..=254).filter(|last|*last!=own).map(|last|SocketAddr::from((Ipv4Addr::new(a,b,c,last),5555))).collect()
@@ -108,7 +128,7 @@ fn nearby_adb_addresses()->Vec<String>{
     // This deliberately scans at most one /24 and one port. Large/isolated networks use manual IP.
     let local=UdpSocket::bind("0.0.0.0:0").and_then(|s|{s.connect("192.0.2.1:80")?;s.local_addr()}).ok().and_then(|s|if let IpAddr::V4(ip)=s.ip(){Some(ip)}else{None});
     let Some(local)=local else{return vec![];};let hosts=local_subnet_hosts(local);let next=AtomicUsize::new(0);let found=Mutex::new(vec![]);
-    thread::scope(|scope|{for _ in 0..24{let hosts=&hosts;let next=&next;let found=&found;scope.spawn(move||loop{let i=next.fetch_add(1,Ordering::Relaxed);let Some(address)=hosts.get(i)else{break;};if TcpStream::connect_timeout(address,Duration::from_millis(220)).is_ok(){let mut list=found.lock().unwrap();if list.len()<8{list.push(address.to_string());}}});}});
+    thread::scope(|scope|{for _ in 0..32{let hosts=&hosts;let next=&next;let found=&found;scope.spawn(move||loop{let i=next.fetch_add(1,Ordering::Relaxed);let Some(address)=hosts.get(i)else{break;};if TcpStream::connect_timeout(address,Duration::from_millis(400)).is_ok(){let mut list=found.lock().unwrap();if list.len()<8{list.push(address.to_string());}}});}});
     found.into_inner().unwrap_or_default()
 }
 
@@ -171,4 +191,5 @@ pub fn now_ms() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_
     #[test] fn rejects_package_injection() { for bad in ["x;id", "a.b --user 0", "a..b", ".a", "x.9bad"] { assert!(!validate_package(bad)); } assert!(validate_package("com.google.android.tvlauncher")); assert!(validate_package("android")); }
     #[test] fn validates_connect_and_pair_addresses() { assert_eq!(normalize_address("192.0.2.10", true).unwrap(), "192.0.2.10:5555"); assert_eq!(normalize_address("[fe80::1]:37001", false).unwrap(), "[fe80::1]:37001"); for bad in ["--help", "1.2.3.4:0", "1.2.3.4:65536", "localhost:55;id", "a b:55", "$(id):5555"] { assert!(normalize_address(bad, true).is_err()); } }
     #[test] fn parses_authorization_states_without_daemon_noise() { let d=parse_devices("* daemon started successfully\nList of devices attached\n192.0.2.10:5555 device product:mitv model:MiTV_AXSO1 transport_id:1\nUSB1 unauthorized\nUSB2 offline\n"); assert_eq!(d.len(),3); assert_eq!(d[0].model,"MiTV AXSO1"); assert_eq!(d[1].state,"unauthorized"); }
+    #[test] fn translates_common_wifi_and_adb_refusal_errors() { let t=friendly_connect_error("192.0.2.10:5555","cannot connect ... (10060)"); assert!(t.contains("2.4 GHz and 5 GHz")); let r=friendly_connect_error("192.0.2.10:5555","actively refused it. (10061)"); assert!(r.contains("Developer options")); assert_eq!(friendly_connect_error("192.0.2.10:5555","unexpected adb msg"),"unexpected adb msg"); }
 }
